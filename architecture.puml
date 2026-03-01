@@ -1,0 +1,169 @@
+@startuml GDP_Phase2_Architecture
+
+' ── Styling ─────────────────────────────────────────────────────────────────
+skinparam backgroundColor #1E1E2E
+skinparam defaultFontName  Helvetica
+skinparam defaultFontSize  11
+skinparam defaultFontColor #F8F8F2
+
+skinparam package {
+    BackgroundColor #282A36
+    BorderColor     #6272A4
+    FontColor       #F8F8F2
+    FontStyle       bold
+    FontSize        12
+}
+
+skinparam interface {
+    BackgroundColor #1A3A5C
+    BorderColor     #4C9BE8
+    FontColor       #F8F8F2
+}
+
+skinparam class {
+    BackgroundColor #282A36
+    BorderColor     #6272A4
+    HeaderBackgroundColor #44475A
+    FontColor       #F8F8F2
+    AttributeFontColor #A0C4FF
+    StereotypeFontColor #BD93F9
+}
+
+skinparam arrow {
+    Color      #8BE9FD
+    FontColor  #F1FA8C
+    FontSize   9
+}
+
+skinparam note {
+    BackgroundColor #44475A
+    BorderColor     #6272A4
+    FontColor       #F8F8F2
+}
+
+' ── core package (owns all contracts) ───────────────────────────────────────
+package "core  ← THE AUTHORITY" #1A2A3A {
+
+    interface DataSink << Protocol >> {
+        + write(results: dict) : None
+    }
+
+    interface PipelineService << Protocol >> {
+        + execute(raw_data: Any) : None
+    }
+
+    class TransformationEngine {
+        - sink   : DataSink
+        - config : dict
+        .. Constructor ..
+        + __init__(sink: DataSink, config: dict)
+        .. Public (satisfies PipelineService) ..
+        + execute(raw_data: Any) : None
+        .. Private — Cleaning ..
+        - _clean(df: DataFrame) : DataFrame
+        .. Private — Analyses ..
+        - _top_10(df, continent, year)        : DataFrame
+        - _bottom_10(df, continent, year)     : DataFrame
+        - _growth_rate(df, continent, s, e)   : DataFrame
+        - _avg_by_continent(df, s, e)         : DataFrame
+        - _global_gdp_trend(df, s, e)         : DataFrame
+        - _fastest_growing_continent(df, s, e): DataFrame
+        - _consistent_decline(df, n)          : DataFrame
+        - _continent_contribution(df, s, e)   : DataFrame
+    }
+
+    ' Engine satisfies PipelineService (it has execute())
+    TransformationEngine ..|> PipelineService : implements
+
+    ' Engine depends on DataSink (injected — never creates it)
+    TransformationEngine --> DataSink : uses (injected)
+}
+
+' ── plugins package ──────────────────────────────────────────────────────────
+package "plugins  (Input & Output)" #1A1A2E {
+
+    class CSVReader {
+        - filepath : str
+        - service  : PipelineService
+        + __init__(filepath: str, service: PipelineService)
+        + run() : None
+    }
+
+    class JSONReader {
+        - filepath : str
+        - service  : PipelineService
+        + __init__(filepath: str, service: PipelineService)
+        + run() : None
+    }
+
+    class ConsoleWriter {
+        + write(results: dict) : None
+        - _print_top_10(df, cfg)
+        - _print_bottom_10(df, cfg)
+        - _print_growth_rate(df, cfg)
+        - _print_avg_continent(df, cfg)
+        - _print_global_trend(df, cfg)
+        - _print_fastest(df, cfg)
+        - _print_decline(df, cfg)
+        - _print_contribution(df, cfg)
+    }
+
+    class GraphicsChartWriter {
+        - output_dir : Path
+        + __init__(output_dir: str)
+        + write(results: dict) : None
+        - _chart_top_10(df, cfg)
+        - _chart_bottom_10(df, cfg)
+        - _chart_growth_rate(df, cfg)
+        - _chart_avg_continent(df, cfg)
+        - _chart_global_trend(df, cfg)
+        - _chart_fastest(df, cfg)
+        - _chart_decline(df, cfg)
+        - _chart_contribution(df, cfg)
+    }
+
+    ' Inputs call PipelineService.execute() — they don't know it's the Engine
+    CSVReader  --> PipelineService : calls execute()
+    JSONReader --> PipelineService : calls execute()
+
+    ' Outputs satisfy DataSink by having write()
+    ConsoleWriter       ..|> DataSink : implements
+    GraphicsChartWriter ..|> DataSink : implements
+}
+
+' ── main (Orchestrator) ──────────────────────────────────────────────────────
+package "main.py  (Orchestrator)" #1A3A1A {
+
+    class Orchestrator << bootstrap >> {
+        INPUT_DRIVERS  : dict
+        OUTPUT_DRIVERS : dict
+        + bootstrap(config_path: str) : None
+    }
+}
+
+note right of Orchestrator
+  Reads config.json
+  Uses dict-based Factory
+  Wires everything together:
+
+  1. sink   = OUTPUT_DRIVERS[cfg["output"]]()
+  2. engine = TransformationEngine(sink, config)
+  3. reader = INPUT_DRIVERS[cfg["input"]](path, engine)
+  4. reader.run()
+end note
+
+' main knows about concrete classes (it IS the wiring layer)
+Orchestrator --> TransformationEngine  : instantiates + injects sink
+Orchestrator --> CSVReader             : instantiates + injects engine
+Orchestrator --> JSONReader            : instantiates + injects engine
+Orchestrator --> ConsoleWriter         : instantiates
+Orchestrator --> GraphicsChartWriter   : instantiates
+
+note bottom of DataSink
+  Core OWNS both Protocols.
+  Dependency arrows always
+  point TOWARD the Core.
+  Core never imports plugins.
+end note
+
+@enduml
