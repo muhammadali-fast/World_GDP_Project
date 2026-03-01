@@ -1,0 +1,12 @@
+{
+  "input": "csv",
+  "output": "console",
+  "data_source": "data/gdp_data.csv",
+  "continent": "Asia",
+  "year_range": [
+    2000,
+    2020
+  ],
+  "top_n_year": 2015,
+  "decline_years": 5
+}
